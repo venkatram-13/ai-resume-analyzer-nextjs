@@ -1,167 +1,77 @@
-import type { Route } from "./+types/upload";
+import type { Route } from "./+types/home";
 import Navbar from "~/components/Navbar";
-import FileUploader from "~/components/FileUploader";
-import ApiKeyInput from "~/components/ApiKeyInput";
-import { useState } from "react";
-import { useNavigate } from "react-router";
-import { convertPdfToImage } from "~/lib/pdf2img";
-import { extractTextFromPDF } from "~/lib/pdfExtractor";
-import { GeminiService } from "~/lib/gemini";
-import { generateUUID } from "~/lib/utils";
+import ResumeCard from "~/components/ResumeCard";
+import {usePuterStore} from "~/lib/puter";
+import {Link, useNavigate} from "react-router";
+import {useEffect, useState} from "react";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Upload Resume - Resumind" },
-    { name: "description", content: "Upload your resume for AI analysis" },
+    { title: "Resumind" },
+    { name: "description", content: "Smart feedback for your dream job!" },
   ];
 }
 
-export default function Upload() {
+export default function Home() {
+  const { auth, kv } = usePuterStore();
   const navigate = useNavigate();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [companyName, setCompanyName] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [jobDescription, setJobDescription] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
-  const [apiKey, setApiKey] = useState("");
+  const [resumes, setResumes] = useState<Resume[]>([]);
+  const [loadingResumes, setLoadingResumes] = useState(false);
 
-  const handleFileSelect = (file: File | null) => {
-    setSelectedFile(file);
-  };
+  useEffect(() => {
+    if(!auth.isAuthenticated) navigate('/auth?next=/');
+  }, [auth.isAuthenticated])
 
-  const handleApiKeySet = (key: string) => {
-    setApiKey(key);
-    setShowApiKeyInput(false);
-    localStorage.setItem('gemini-api-key', key);
-  };
+  useEffect(() => {
+    const loadResumes = async () => {
+      setLoadingResumes(true);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!selectedFile) {
-      alert("Please select a resume file");
-      return;
+      const resumes = (await kv.list('resume:*', true)) as KVItem[];
+
+      const parsedResumes = resumes?.map((resume) => (
+          JSON.parse(resume.value) as Resume
+      ))
+
+      setResumes(parsedResumes || []);
+      setLoadingResumes(false);
     }
 
-    // Check if API key is available
-    const storedApiKey = localStorage.getItem('gemini-api-key');
-    if (!storedApiKey && !apiKey) {
-      setShowApiKeyInput(true);
-      return;
-    }
+    loadResumes()
+  }, []);
 
-    const currentApiKey = apiKey || storedApiKey!;
-    setIsAnalyzing(true);
+  return <main className="bg-[url('/images/bg-main.svg')] bg-cover">
+    <Navbar />
 
-    try {
-      // Extract text from PDF
-      const resumeText = await extractTextFromPDF(selectedFile);
-      
-      // Analyze with Gemini
-      const geminiService = new GeminiService(currentApiKey);
-      const feedback = await geminiService.analyzeResume(
-        resumeText,
-        jobTitle || "General Position",
-        jobDescription || "No specific job description provided"
-      );
-
-      // Store analysis results in session storage for the results page
-      const analysisData = {
-        companyName,
-        jobTitle,
-        feedback,
-        fileName: selectedFile.name
-      };
-      
-      sessionStorage.setItem('resume-analysis', JSON.stringify(analysisData));
-      
-      // Navigate to results page
-      navigate('/results');
-      
-    } catch (error) {
-      console.error('Analysis failed:', error);
-      alert('Failed to analyze resume. Please check your API key and try again.');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  return (
-    <main className="bg-[url('/images/bg-main.svg')] bg-cover min-h-screen">
-      <Navbar />
-      
-      <section className="main-section">
-        <div className="page-heading py-16">
-          <h1>Upload Your Resume</h1>
-          <h2>Get AI-powered feedback and improve your chances</h2>
-        </div>
-
-        {isAnalyzing ? (
-          <div className="flex flex-col items-center justify-center gap-8">
-            <img src="/images/resume-scan-2.gif" className="w-[300px]" />
-            <div className="text-center">
-              <h3 className="text-2xl font-bold mb-2">Analyzing Your Resume...</h3>
-              <p className="text-gray-600">This may take a few moments</p>
-            </div>
-          </div>
-        ) : (
-          <div className="max-w-2xl w-full">
-            <form onSubmit={handleSubmit}>
-              <div className="form-div">
-                <label htmlFor="resume">Resume (PDF)</label>
-                <FileUploader onFileSelect={handleFileSelect} />
-              </div>
-
-              <div className="form-div">
-                <label htmlFor="company">Company Name (Optional)</label>
-                <input
-                  type="text"
-                  id="company"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="e.g., Google, Microsoft, Apple"
-                />
-              </div>
-
-              <div className="form-div">
-                <label htmlFor="jobTitle">Job Title (Optional)</label>
-                <input
-                  type="text"
-                  id="jobTitle"
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                  placeholder="e.g., Frontend Developer, Data Scientist"
-                />
-              </div>
-
-              <div className="form-div">
-                <label htmlFor="jobDescription">Job Description (Optional)</label>
-                <textarea
-                  id="jobDescription"
-                  value={jobDescription}
-                  onChange={(e) => setJobDescription(e.target.value)}
-                  placeholder="Paste the job description here for more targeted feedback..."
-                  rows={6}
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="primary-button text-xl font-semibold"
-                disabled={!selectedFile || isAnalyzing}
-              >
-                {isAnalyzing ? "Analyzing..." : "Analyze Resume"}
-              </button>
-            </form>
-          </div>
+    <section className="main-section">
+      <div className="page-heading py-16">
+        <h1>Track Your Applications & Resume Ratings</h1>
+        {!loadingResumes && resumes?.length === 0 ? (
+            <h2>No resumes found. Upload your first resume to get feedback.</h2>
+        ): (
+          <h2>Review your submissions and check AI-powered feedback.</h2>
         )}
-      </section>
+      </div>
+      {loadingResumes && (
+          <div className="flex flex-col items-center justify-center">
+            <img src="/images/resume-scan-2.gif" className="w-[200px]" />
+          </div>
+      )}
 
-      <ApiKeyInput 
-        onApiKeySet={handleApiKeySet}
-        isVisible={showApiKeyInput}
-      />
-    </main>
-  );
+      {!loadingResumes && resumes.length > 0 && (
+        <div className="resumes-section">
+          {resumes.map((resume) => (
+              <ResumeCard key={resume.id} resume={resume} />
+          ))}
+        </div>
+      )}
+
+      {!loadingResumes && resumes?.length === 0 && (
+          <div className="flex flex-col items-center justify-center mt-10 gap-4">
+            <Link to="/upload" className="primary-button w-fit text-xl font-semibold">
+              Upload Resume
+            </Link>
+          </div>
+      )}
+    </section>
+  </main>
 }
